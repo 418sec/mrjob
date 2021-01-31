@@ -32,7 +32,8 @@ For more information, see :ref:`job-protocols` and :ref:`writing-protocols`.
 # don't add imports here that aren't part of the standard Python library,
 # since MRJobs need to run in Amazon's generic EMR environment
 import json
-
+import io
+import builtins
 try:
     import cPickle as pickle  # Python 2 only
 except ImportError:
@@ -40,8 +41,28 @@ except ImportError:
 
 from mrjob.py2 import PY2
 from mrjob.util import safeeval
+safe_builtins = {
+    'range',
+    'complex',
+    'set',
+    'frozenset',
+    'slice',
+}
 
+class RestrictedUnpickler(pickle.Unpickler):
 
+    def find_class(self, module, name):
+        """Only allow safe classes from builtins"""
+        if module == "builtins" and name in safe_builtins:
+            return getattr(builtins, name)
+        """Forbid everything else"""
+        raise pickle.UnpicklingError("global '%s.%s' is forbidden" %
+                                     (module, name))
+
+def restricted_loads(s):
+    """Helper function analogous to pickle.loads()"""
+
+    return RestrictedUnpickler(io.BytesIO(s)).load()
 try:
     import rapidjson
     rapidjson
@@ -304,12 +325,14 @@ class PickleProtocol(_KeyCachingProtocol):
     # for Python 2 and 3
     if PY2:
         def _loads(self, value):
+            restricted_loads(value.decode('string_escape'))
             return pickle.loads(value.decode('string_escape'))
 
         def _dumps(self, value):
             return pickle.dumps(value).encode('string_escape')
     else:
         def _loads(self, value):
+            restricted_loads(value.decode('unicode_escape').encode('latin_1'))
             return pickle.loads(
                 value.decode('unicode_escape').encode('latin_1'))
 
@@ -326,7 +349,7 @@ class PickleValueProtocol(object):
     """
     if PY2:
         def read(self, line):
-            return (None, pickle.loads(line.decode('string_escape')))
+            return (None, pickle.loads(restricted_loads(line.decode('string_escape'))))
 
         def write(self, key, value):
             return pickle.dumps(value).encode('string_escape')
