@@ -356,7 +356,7 @@ class PickleValueProtocol(object):
     else:
         def read(self, line):
             return (None, pickle.loads(
-                line.decode('unicode_escape').encode('latin_1')))
+                restricted_loads(line.decode('unicode_escape').encode('latin_1'))))
 
         def write(self, key, value):
             return pickle.dumps(value).decode(
